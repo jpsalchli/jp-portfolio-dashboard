@@ -10,14 +10,13 @@ st.set_page_config(layout="wide")
 st.title("📊 JP's Investment Portfolio Dashboard")
 
 # Portfolio
-portfolio = {
+df = pd.DataFrame({
     "Ticker": ["FNV", "CFR.SW", "NOVO-B.CO", "NDA-FI.HE", "LLY", "AXON", "KD", "VWCE.DE", "VYM", "GRMNY"],
     "Company": [
         "Franco Nevada", "Richemont", "Novo Nordisk", "Nordea Bank",
         "Eli Lilly", "Axon Enterprise", "Kyndryl Holdings",
         "Vanguard FTSE All World", "Vanguard High Dividend", "Chimera Germany ETF"]
-}
-df = pd.DataFrame(portfolio)
+})
 
 # API key for Finnhub
 FINNHUB_TOKEN = "d08j1rpr01qju5m6q6d0d08j1rpr01qju5m6q6dg"
@@ -53,11 +52,14 @@ def get_finnhub_news(ticker):
 ticker = st.sidebar.selectbox("Select a stock:", df["Ticker"])
 company = df[df["Ticker"] == ticker]["Company"].values[0]
 
+@st.cache_data(ttl=3600)
+def get_stock_history(ticker):
+    return yf.Ticker(ticker).history(period="6mo")
+
 # Stock info
 st.subheader(f"{company} ({ticker})")
 try:
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="6mo")
+    hist = get_stock_history(ticker)
     if hist.empty:
         st.warning("No price data available.")
     else:
@@ -87,3 +89,5 @@ else:
     for item in news_items:
         st.markdown(f"- **{item['headline']}** ({item['source']}, {datetime.fromtimestamp(item['datetime']).date()})")
         st.markdown(f"  [{item['url']}]({item['url']})")
+
+
