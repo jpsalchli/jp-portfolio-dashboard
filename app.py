@@ -1,11 +1,9 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
-import plotly.graph_objs as go
-from datetime import datetime, timedelta
-import time
+from yahooquery import Ticker
+from datetime import datetime
 
-# --- Portfolio Data ---
+# === Portfolio Definition ===
 portfolio = [
     {"ticker": "FNV", "company": "Franco Nevada", "shares": 120},
     {"ticker": "CFR.SW", "company": "Richemont", "shares": 100},
@@ -19,75 +17,58 @@ portfolio = [
     {"ticker": "GRMNY", "company": "Chimera Germany ETF", "shares": 2500},
 ]
 
-portfolio_df = pd.DataFrame(portfolio)
-portfolio_df.set_index("ticker", inplace=True)
-
-# --- Fetch Market Data ---
-def fetch_data_yf(tickers):
-    try:
-        tickers_str = " ".join(tickers)
-        data = yf.Tickers(tickers_str)
-        prices, changes = {}, {}
-        for ticker in tickers:
-            try:
-                info = data.tickers[ticker].info
-                price = info.get("regularMarketPrice")
-                change = info.get("regularMarketChangePercent")
-                prices[ticker] = price
-                changes[ticker] = change
-            except Exception:
-                prices[ticker] = None
-                changes[ticker] = None
-        return prices, changes
-    except Exception:
-        return {}, {}
-
-# --- Streamlit App Layout ---
-st.set_page_config(page_title="JP's Portfolio Dashboard", layout="wide")
+# === Streamlit Setup ===
+st.set_page_config(page_title="JP Portfolio Dashboard", layout="wide")
 st.title("📊 JP's Investment Portfolio Dashboard")
 
-with st.spinner("Fetching latest prices..."):
-    tickers = portfolio_df.index.tolist()
-    prices, changes = fetch_data_yf(tickers)
+# === Load Data ===
+tickers = [entry["ticker"] for entry in portfolio]
+t = Ticker(tickers)
+quote = t.quote_type
+price_data = t.price
 
-    total_values = []
-    weightings = []
-    total_portfolio_value = 0
+results = []
+total_value = 0
 
-    for ticker in tickers:
-        price = prices.get(ticker)
-        shares = portfolio_df.loc[ticker, "shares"]
-        value = price * shares if price is not None else 0
-        total_values.append(value)
-        total_portfolio_value += value
+for entry in portfolio:
+    ticker = entry["ticker"]
+    shares = entry["shares"]
+    company = entry["company"]
 
-    for value in total_values:
-        weight = round(value / total_portfolio_value * 100, 2) if total_portfolio_value else 0
-        weightings.append(weight)
+    info = price_data.get(ticker)
+    if isinstance(info, dict) and info.get("regularMarketPrice"):
+        price = info["regularMarketPrice"]
+        change = info.get("regularMarketChangePercent")
+        value = round(price * shares, 2)
+        results.append({
+            "Ticker": ticker,
+            "Company": company,
+            "Shares": shares,
+            "Price": round(price, 2),
+            "Daily % Change": round(change, 2) if change else "N/A",
+            "Total Value": value
+        })
+        total_value += value
+    else:
+        results.append({
+            "Ticker": ticker,
+            "Company": company,
+            "Shares": shares,
+            "Price": "N/A",
+            "Daily % Change": "N/A",
+            "Total Value": 0
+        })
 
-    portfolio_df["Price"] = portfolio_df.index.map(prices.get)
-    portfolio_df["Daily % Change"] = portfolio_df.index.map(changes.get)
-    portfolio_df["Total Value"] = total_values
-    portfolio_df["Weight %"] = weightings
+# Calculate weights
+for row in results:
+    row["Weight %"] = round((row["Total Value"] / total_value * 100), 2) if total_value else 0
 
-# --- Portfolio Table ---
-st.subheader("📋 Full Portfolio Snapshot")
-st.dataframe(portfolio_df.reset_index(), use_container_width=True)
+# === Display Table ===
+df = pd.DataFrame(results)
+st.subheader("📋 Portfolio Snapshot")
+st.dataframe(df, use_container_width=True)
 
-# --- Summary Chart ---
-st.subheader("📈 Portfolio Allocation by Weight")
-fig = go.Figure(data=[
-    go.Pie(
-        labels=portfolio_df["company"],
-        values=portfolio_df["Weight %"],
-        hole=0.4,
-        textinfo="label+percent",
-    )
-])
-fig.update_layout(margin=dict(t=10, b=10, l=10, r=10))
-st.plotly_chart(fig, use_container_width=True)
-
-# --- Last Updated ---
+# === Footer ===
 st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
