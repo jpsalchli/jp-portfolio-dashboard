@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import datetime
+import time
 
 # === Portfolio Definition ===
 portfolio = [
@@ -21,20 +22,25 @@ portfolio = [
 def fetch_quotes(tickers):
     url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={','.join(tickers)}"
     try:
+        start = time.time()
         response = requests.get(url, timeout=5)
+        elapsed = time.time() - start
+        st.text(f"⏱ Yahoo response time: {elapsed:.2f} seconds")
         response.raise_for_status()
-        data = response.json()["quoteResponse"]["result"]
+        data = response.json().get("quoteResponse", {}).get("result", [])
+        st.text(f"✅ {len(data)} tickers returned out of {len(tickers)}")
         return {item["symbol"]: item for item in data}
     except Exception as e:
-        print(f"Error fetching data: {e}")
+        st.error(f"❌ Error fetching data: {e}")
         return {}
 
 # === Streamlit Setup ===
 st.set_page_config(page_title="JP Portfolio Dashboard", layout="wide")
-st.title("📊 JP's Investment Portfolio Dashboard (Raw Yahoo API Mode)")
+st.title("📊 JP's Investment Portfolio Dashboard (Debug Mode)")
 
 # === Load Data ===
 ticker_list = [item["ticker"] for item in portfolio]
+st.text("Fetching Yahoo Finance data...")
 quote_data = fetch_quotes(ticker_list)
 
 results = []
@@ -60,6 +66,7 @@ for entry in portfolio:
         })
         total_value += value
     else:
+        st.warning(f"⚠️ No data returned for: {ticker}")
         results.append({
             "Ticker": ticker,
             "Company": company,
@@ -77,7 +84,8 @@ for row in results:
 df = pd.DataFrame(results)
 st.dataframe(df, use_container_width=True)
 
-st.caption(f"Data pulled via direct Yahoo Finance quote API. Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} — Powered by raw Yahoo Finance API")
+
 
 
 
