@@ -1,18 +1,11 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import requests
-import plotly.graph_objects as go
+import plotly.graph_objs as go
 from datetime import datetime, timedelta
-from finnhub import Client as FinnhubClient
-from yahooquery import Ticker as YQ_Ticker
 import time
 
-# === CONFIGURATION ===
-FINNHUB_KEY = "d08j1rpr01qju5m6q6d0d08j1rpr01qju5m6q6dg"
-FMP_KEY = "ugL4X7iZNw3wdkq7dFpnhZDujdEAkymy"
-finnhub = FinnhubClient(api_key=FINNHUB_KEY)
-
+# --- Portfolio Data ---
 portfolio = [
     {"ticker": "FNV", "company": "Franco Nevada", "shares": 120},
     {"ticker": "CFR.SW", "company": "Richemont", "shares": 100},
@@ -26,65 +19,77 @@ portfolio = [
     {"ticker": "GRMNY", "company": "Chimera Germany ETF", "shares": 2500},
 ]
 
-@st.cache_data(ttl=3600)
-def fetch_from_fmp(ticker):
+portfolio_df = pd.DataFrame(portfolio)
+portfolio_df.set_index("ticker", inplace=True)
+
+# --- Fetch Market Data ---
+def fetch_data_yf(tickers):
     try:
-        url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}?apikey={FMP_KEY}"
-        r = requests.get(url)
-        data = r.json()
-        if data:
-            d = data[0]
-            return d["price"], d.get("changesPercentage")
-    except:
-        return None, None
+        tickers_str = " ".join(tickers)
+        data = yf.Tickers(tickers_str)
+        prices, changes = {}, {}
+        for ticker in tickers:
+            try:
+                info = data.tickers[ticker].info
+                price = info.get("regularMarketPrice")
+                change = info.get("regularMarketChangePercent")
+                prices[ticker] = price
+                changes[ticker] = change
+            except Exception:
+                prices[ticker] = None
+                changes[ticker] = None
+        return prices, changes
+    except Exception:
+        return {}, {}
 
-@st.cache_data(ttl=3600)
-def fetch_from_yq(ticker):
-    try:
-        t = YQ_Ticker(ticker)
-        p = t.price[ticker]
-        return p["regularMarketPrice"], p.get("regularMarketChangePercent")
-    except:
-        return None, None
-
-def get_price_and_change(ticker):
-    price, change = fetch_from_fmp(ticker)
-    if price is None:
-        price, change = fetch_from_yq(ticker)
-    return price, change
-
-# === APP ===
-st.set_page_config(page_title="JP Portfolio Dashboard", layout="wide")
+# --- Streamlit App Layout ---
+st.set_page_config(page_title="JP's Portfolio Dashboard", layout="wide")
 st.title("📊 JP's Investment Portfolio Dashboard")
 
-rows = []
-total_value = 0
+with st.spinner("Fetching latest prices..."):
+    tickers = portfolio_df.index.tolist()
+    prices, changes = fetch_data_yf(tickers)
 
-for entry in portfolio:
-    t = entry["ticker"]
-    name = entry["company"]
-    shares = entry["shares"]
+    total_values = []
+    weightings = []
+    total_portfolio_value = 0
 
-    price, change = get_price_and_change(t)
-    value = round(price * shares, 2) if price else 0
-    total_value += value
+    for ticker in tickers:
+        price = prices.get(ticker)
+        shares = portfolio_df.loc[ticker, "shares"]
+        value = price * shares if price is not None else 0
+        total_values.append(value)
+        total_portfolio_value += value
 
-    rows.append({
-        "ticker": t,
-        "company": name,
-        "shares": shares,
-        "Price": price,
-        "Daily % Change": change,
-        "Total Value": value,
-        "Source": "FMP" if price else "YQ"
-    })
+    for value in total_values:
+        weight = round(value / total_portfolio_value * 100, 2) if total_portfolio_value else 0
+        weightings.append(weight)
 
-df = pd.DataFrame(rows)
-df["Weight %"] = (df["Total Value"] / total_value * 100).round(2)
+    portfolio_df["Price"] = portfolio_df.index.map(prices.get)
+    portfolio_df["Daily % Change"] = portfolio_df.index.map(changes.get)
+    portfolio_df["Total Value"] = total_values
+    portfolio_df["Weight %"] = weightings
 
-st.dataframe(df, use_container_width=True)
+# --- Portfolio Table ---
+st.subheader("📋 Full Portfolio Snapshot")
+st.dataframe(portfolio_df.reset_index(), use_container_width=True)
 
-st.caption("Prices fetched from FMP, fallback to YahooQuery where necessary. Cached for 1 hour.")
+# --- Summary Chart ---
+st.subheader("📈 Portfolio Allocation by Weight")
+fig = go.Figure(data=[
+    go.Pie(
+        labels=portfolio_df["company"],
+        values=portfolio_df["Weight %"],
+        hole=0.4,
+        textinfo="label+percent",
+    )
+])
+fig.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+st.plotly_chart(fig, use_container_width=True)
+
+# --- Last Updated ---
+st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
 
 
 
