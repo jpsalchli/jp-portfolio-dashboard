@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from yahooquery import Ticker
+import requests
 from datetime import datetime
 
 # === Portfolio Definition ===
@@ -17,26 +17,36 @@ portfolio = [
     {"ticker": "GRMNY", "company": "Chimera Germany ETF", "shares": 2500},
 ]
 
+# === Fetch Raw Quote Data ===
+def fetch_quotes(tickers):
+    url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={','.join(tickers)}"
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        data = response.json()["quoteResponse"]["result"]
+        return {item["symbol"]: item for item in data}
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        return {}
+
 # === Streamlit Setup ===
 st.set_page_config(page_title="JP Portfolio Dashboard", layout="wide")
-st.title("📊 JP's Investment Portfolio Dashboard")
+st.title("📊 JP's Investment Portfolio Dashboard (Raw Yahoo API Mode)")
 
 # === Load Data ===
-tickers = [entry["ticker"] for entry in portfolio]
-t = Ticker(tickers)
-quote = t.quote_type
-price_data = t.price
+ticker_list = [item["ticker"] for item in portfolio]
+quote_data = fetch_quotes(ticker_list)
 
 results = []
 total_value = 0
 
 for entry in portfolio:
     ticker = entry["ticker"]
-    shares = entry["shares"]
     company = entry["company"]
+    shares = entry["shares"]
+    info = quote_data.get(ticker)
 
-    info = price_data.get(ticker)
-    if isinstance(info, dict) and info.get("regularMarketPrice"):
+    if info and info.get("regularMarketPrice"):
         price = info["regularMarketPrice"]
         change = info.get("regularMarketChangePercent")
         value = round(price * shares, 2)
@@ -59,17 +69,15 @@ for entry in portfolio:
             "Total Value": 0
         })
 
-# Calculate weights
+# Add weight
 for row in results:
     row["Weight %"] = round((row["Total Value"] / total_value * 100), 2) if total_value else 0
 
-# === Display Table ===
+# === Display ===
 df = pd.DataFrame(results)
-st.subheader("📋 Portfolio Snapshot")
 st.dataframe(df, use_container_width=True)
 
-# === Footer ===
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.caption(f"Data pulled via direct Yahoo Finance quote API. Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
 
