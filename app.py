@@ -1,13 +1,13 @@
-# JP Portfolio Dashboard App with FMP + YahooQuery Fallback
+# JP Portfolio Dashboard App with FMP + YahooQuery + Timeout/Error Handling
 
 import streamlit as st
 import pandas as pd
-import yfinance as yf
-from yahooquery import Ticker as YQ_Ticker
 import requests
+from yahooquery import Ticker as YQ_Ticker
 
 # --- CONFIG ---
 FMP_API_KEY = "ugL4X7iZNw3wdkq7dFpnhZDujdEAkymy"
+REQUEST_TIMEOUT = 5  # seconds
 
 # --- PORTFOLIO SETUP ---
 portfolio = [
@@ -27,7 +27,7 @@ portfolio = [
 def get_fmp_data(ticker):
     url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}?apikey={FMP_API_KEY}"
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=REQUEST_TIMEOUT)
         data = response.json()
         if isinstance(data, list) and data:
             return {
@@ -35,70 +35,74 @@ def get_fmp_data(ticker):
                 "changePercent": data[0].get("changesPercentage"),
                 "source": "FMP"
             }
-    except Exception:
-        return None
-
+    except Exception as e:
+        print(f"FMP error for {ticker}: {e}")
+    return None
 
 def get_yq_data(ticker):
     try:
         yq = YQ_Ticker(ticker)
         price_data = yq.price.get(ticker)
-        if isinstance(price_data, dict):
-            reg_price = price_data.get("regularMarketPrice")
-            pct_change = price_data.get("regularMarketChangePercent")
+        if isinstance(price_data, dict) and "regularMarketPrice" in price_data:
             return {
-                "price": reg_price,
-                "changePercent": pct_change,
+                "price": price_data.get("regularMarketPrice"),
+                "changePercent": price_data.get("regularMarketChangePercent"),
                 "source": "YahooQuery"
             }
-    except Exception:
-        return None
+    except Exception as e:
+        print(f"YahooQuery error for {ticker}: {e}")
+    return None
 
-# --- LOAD & ENRICH DATA ---
-data = []
-
-total_portfolio_value = 0
-
-for entry in portfolio:
-    ticker = entry["ticker"]
-    shares = entry["shares"]
-
-    result = get_fmp_data(ticker)
-    if not result:
-        result = get_yq_data(ticker)
-
-    if result and result["price"]:
-        price = result["price"]
-        total_value = price * shares
-        total_portfolio_value += total_value
-        data.append({
-            "ticker": ticker,
-            "company": entry["company"],
-            "shares": shares,
-            "Price": round(price, 2),
-            "Daily % Change": round(result["changePercent"], 4) if result["changePercent"] is not None else "N/A",
-            "Total Value": round(total_value, 2),
-            "Source": result["source"]
-        })
-    else:
-        data.append({
-            "ticker": ticker,
-            "company": entry["company"],
-            "shares": shares,
-            "Price": None,
-            "Daily % Change": None,
-            "Total Value": 0,
-            "Source": "None"
-        })
-
-# Add weight %
-for row in data:
-    row["Weight %"] = round((row["Total Value"] / total_portfolio_value) * 100, 2) if total_portfolio_value else 0
-
-# --- STREAMLIT UI ---
+# --- LOAD DATA ---
 st.set_page_config(layout="wide")
 st.title("📊 JP's Investment Portfolio Dashboard")
 
-st.dataframe(pd.DataFrame(data))
+results = []
+total_value = 0
+
+with st.spinner("Fetching portfolio data..."):
+    for entry in portfolio:
+        ticker = entry["ticker"]
+        shares = entry["shares"]
+
+        data = get_fmp_data(ticker)
+        if not data:
+            data = get_yq_data(ticker)
+
+        if data and data["price"]:
+            price = data["price"]
+            change = data.get("changePercent", 0)
+            value = price * shares
+            results.append({
+                "Ticker": ticker,
+                "Company": entry["company"],
+                "Shares": shares,
+                "Price": round(price, 2),
+                "Daily % Change": round(change, 2) if change else "N/A",
+                "Total Value": round(value, 2),
+                "Source": data["source"]
+            })
+            total_value += value
+        else:
+            results.append({
+                "Ticker": ticker,
+                "Company": entry["company"],
+                "Shares": shares,
+                "Price": "N/A",
+                "Daily % Change": "N/A",
+                "Total Value": 0,
+                "Source": "Unavailable"
+            })
+
+# --- FINALIZE TABLE ---
+for row in results:
+    row["Weight %"] = round((row["Total Value"] / total_value) * 100, 2) if total_value else 0
+
+# --- DISPLAY ---
+df = pd.DataFrame(results)
+if df.empty:
+    st.error("No data could be loaded. Please try again later.")
+else:
+    st.dataframe(df, use_container_width=True)
 
 
