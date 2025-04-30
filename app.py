@@ -1,14 +1,18 @@
-# JP Portfolio Dashboard – Fast Mode (FMP only, no YahooQuery fallback)
-
 import streamlit as st
 import pandas as pd
+import yfinance as yf
 import requests
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
+from finnhub import Client as FinnhubClient
+from yahooquery import Ticker as YQ_Ticker
+import time
 
-# --- CONFIG ---
-FMP_API_KEY = "ugL4X7iZNw3wdkq7dFpnhZDujdEAkymy"
-FMP_QUOTE_URL = "https://financialmodelingprep.com/api/v3/quote/"
+# === CONFIGURATION ===
+FINNHUB_KEY = "d08j1rpr01qju5m6q6d0d08j1rpr01qju5m6q6dg"
+FMP_KEY = "ugL4X7iZNw3wdkq7dFpnhZDujdEAkymy"
+finnhub = FinnhubClient(api_key=FINNHUB_KEY)
 
-# --- PORTFOLIO ---
 portfolio = [
     {"ticker": "FNV", "company": "Franco Nevada", "shares": 120},
     {"ticker": "CFR.SW", "company": "Richemont", "shares": 100},
@@ -22,68 +26,66 @@ portfolio = [
     {"ticker": "GRMNY", "company": "Chimera Germany ETF", "shares": 2500},
 ]
 
-@st.cache_data(ttl=900)
-def fetch_fmp_batch(tickers):
-    symbols = ",".join(tickers)
-    url = f"{FMP_QUOTE_URL}{symbols}?apikey={FMP_API_KEY}"
+@st.cache_data(ttl=3600)
+def fetch_from_fmp(ticker):
     try:
-        r = requests.get(url, timeout=6)
-        return {d["symbol"]: d for d in r.json() if "price" in d}
-    except Exception as e:
-        print(f"FMP batch error: {e}")
-        return {}
+        url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}?apikey={FMP_KEY}"
+        r = requests.get(url)
+        data = r.json()
+        if data:
+            d = data[0]
+            return d["price"], d.get("changesPercentage")
+    except:
+        return None, None
 
-# --- LOAD & PROCESS ---
-st.set_page_config(layout="wide")
-st.title("📊 JP's Investment Portfolio Dashboard (Fast Mode)")
+@st.cache_data(ttl=3600)
+def fetch_from_yq(ticker):
+    try:
+        t = YQ_Ticker(ticker)
+        p = t.price[ticker]
+        return p["regularMarketPrice"], p.get("regularMarketChangePercent")
+    except:
+        return None, None
 
-results = []
+def get_price_and_change(ticker):
+    price, change = fetch_from_fmp(ticker)
+    if price is None:
+        price, change = fetch_from_yq(ticker)
+    return price, change
+
+# === APP ===
+st.set_page_config(page_title="JP Portfolio Dashboard", layout="wide")
+st.title("📊 JP's Investment Portfolio Dashboard")
+
+rows = []
 total_value = 0
 
-ticker_list = [entry["ticker"] for entry in portfolio]
-fmp_data = fetch_fmp_batch(ticker_list)
-
 for entry in portfolio:
-    ticker = entry["ticker"]
+    t = entry["ticker"]
+    name = entry["company"]
     shares = entry["shares"]
-    company = entry["company"]
 
-    info = fmp_data.get(ticker)
+    price, change = get_price_and_change(t)
+    value = round(price * shares, 2) if price else 0
+    total_value += value
 
-    if info and info.get("price"):
-        price = info["price"]
-        change = info.get("changesPercentage")
-        value = price * shares
-        results.append({
-            "Ticker": ticker,
-            "Company": company,
-            "Shares": shares,
-            "Price": round(price, 2),
-            "Daily % Change": round(change, 2) if change else "N/A",
-            "Total Value": round(value, 2),
-            "Source": "FMP"
-        })
-        total_value += value
-    else:
-        results.append({
-            "Ticker": ticker,
-            "Company": company,
-            "Shares": shares,
-            "Price": "N/A",
-            "Daily % Change": "N/A",
-            "Total Value": 0,
-            "Source": "Missing (FMP only)"
-        })
+    rows.append({
+        "ticker": t,
+        "company": name,
+        "shares": shares,
+        "Price": price,
+        "Daily % Change": change,
+        "Total Value": value,
+        "Source": "FMP" if price else "YQ"
+    })
 
-for row in results:
-    row["Weight %"] = round((row["Total Value"] / total_value) * 100, 2) if total_value else 0
+df = pd.DataFrame(rows)
+df["Weight %"] = (df["Total Value"] / total_value * 100).round(2)
 
-# --- DISPLAY ---
-df = pd.DataFrame(results)
-if df.empty:
-    st.error("No data could be retrieved. Try again later.")
-else:
-    st.dataframe(df, use_container_width=True)
+st.dataframe(df, use_container_width=True)
+
+st.caption("Prices fetched from FMP, fallback to YahooQuery where necessary. Cached for 1 hour.")
+
 
 
 
