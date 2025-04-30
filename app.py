@@ -1,10 +1,12 @@
+
 import streamlit as st
 import pandas as pd
-import requests
-from datetime import datetime
-import time
+import random
 
-# === Portfolio Definition ===
+st.set_page_config(page_title="JP Portfolio Dashboard", layout="wide")
+
+st.title("📊 JP's Investment Portfolio Dashboard")
+
 portfolio = [
     {"ticker": "FNV", "company": "Franco Nevada", "shares": 120},
     {"ticker": "CFR.SW", "company": "Richemont", "shares": 100},
@@ -18,76 +20,17 @@ portfolio = [
     {"ticker": "GRMNY", "company": "Chimera Germany ETF", "shares": 2500},
 ]
 
-# === Fetch Raw Quote Data ===
-def fetch_quotes(tickers):
-    url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={','.join(tickers)}"
-    try:
-        start = time.time()
-        response = requests.get(url, timeout=5)
-        elapsed = time.time() - start
-        st.text(f"⏱ Yahoo response time: {elapsed:.2f} seconds")
-        response.raise_for_status()
-        data = response.json().get("quoteResponse", {}).get("result", [])
-        st.text(f"✅ {len(data)} tickers returned out of {len(tickers)}")
-        return {item["symbol"]: item for item in data}
-    except Exception as e:
-        st.error(f"❌ Error fetching data: {e}")
-        return {}
+df = pd.DataFrame(portfolio)
 
-# === Streamlit Setup ===
-st.set_page_config(page_title="JP Portfolio Dashboard", layout="wide")
-st.title("📊 JP's Investment Portfolio Dashboard (Debug Mode)")
+if st.button("🔄 Refresh Prices"):
+    df["Price"] = [round(random.uniform(10, 900), 2) for _ in df.index]
+    df["Daily % Change"] = [round(random.uniform(-3, 3), 2) for _ in df.index]
+    df["Total Value"] = df["Price"] * df["shares"]
+    total_portfolio_value = df["Total Value"].sum()
+    df["Weight %"] = round(df["Total Value"] / total_portfolio_value * 100, 2)
+    df["Source"] = "Placeholder"
+else:
+    df["Price"] = df["Daily % Change"] = df["Total Value"] = df["Weight %"] = 0
+    df["Source"] = None
 
-# === Load Data ===
-ticker_list = [item["ticker"] for item in portfolio]
-st.text("Fetching Yahoo Finance data...")
-quote_data = fetch_quotes(ticker_list)
-
-results = []
-total_value = 0
-
-for entry in portfolio:
-    ticker = entry["ticker"]
-    company = entry["company"]
-    shares = entry["shares"]
-    info = quote_data.get(ticker)
-
-    if info and info.get("regularMarketPrice"):
-        price = info["regularMarketPrice"]
-        change = info.get("regularMarketChangePercent")
-        value = round(price * shares, 2)
-        results.append({
-            "Ticker": ticker,
-            "Company": company,
-            "Shares": shares,
-            "Price": round(price, 2),
-            "Daily % Change": round(change, 2) if change else "N/A",
-            "Total Value": value
-        })
-        total_value += value
-    else:
-        st.warning(f"⚠️ No data returned for: {ticker}")
-        results.append({
-            "Ticker": ticker,
-            "Company": company,
-            "Shares": shares,
-            "Price": "N/A",
-            "Daily % Change": "N/A",
-            "Total Value": 0
-        })
-
-# Add weight
-for row in results:
-    row["Weight %"] = round((row["Total Value"] / total_value * 100), 2) if total_value else 0
-
-# === Display ===
-df = pd.DataFrame(results)
 st.dataframe(df, use_container_width=True)
-
-st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} — Powered by raw Yahoo Finance API")
-
-
-
-
-
-
