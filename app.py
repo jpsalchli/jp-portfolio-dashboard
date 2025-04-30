@@ -101,3 +101,4 @@ st.title("📊 JP's Investment Portfolio Dashboard")
 
 st.dataframe(pd.DataFrame(data))
 
+
