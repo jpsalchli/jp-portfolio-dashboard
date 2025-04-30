@@ -1,9 +1,8 @@
-# JP Portfolio Dashboard – Optimized with Caching and Batched FMP API
+# JP Portfolio Dashboard – Fast Mode (FMP only, no YahooQuery fallback)
 
 import streamlit as st
 import pandas as pd
 import requests
-from yahooquery import Ticker as YQ_Ticker
 
 # --- CONFIG ---
 FMP_API_KEY = "ugL4X7iZNw3wdkq7dFpnhZDujdEAkymy"
@@ -34,24 +33,9 @@ def fetch_fmp_batch(tickers):
         print(f"FMP batch error: {e}")
         return {}
 
-@st.cache_data(ttl=900)
-def fetch_yq_fallback(ticker):
-    try:
-        yq = YQ_Ticker(ticker)
-        p = yq.price.get(ticker)
-        if isinstance(p, dict):
-            return {
-                "price": p.get("regularMarketPrice"),
-                "change": p.get("regularMarketChangePercent"),
-                "source": "YahooQuery"
-            }
-    except Exception as e:
-        print(f"YahooQuery error for {ticker}: {e}")
-    return None
-
 # --- LOAD & PROCESS ---
 st.set_page_config(layout="wide")
-st.title("📊 JP's Investment Portfolio Dashboard")
+st.title("📊 JP's Investment Portfolio Dashboard (Fast Mode)")
 
 results = []
 total_value = 0
@@ -65,17 +49,10 @@ for entry in portfolio:
     company = entry["company"]
 
     info = fmp_data.get(ticker)
-    source = "FMP"
-
-    if not info:
-        fallback = fetch_yq_fallback(ticker)
-        if fallback:
-            info = fallback
-            source = fallback["source"]
 
     if info and info.get("price"):
         price = info["price"]
-        change = info.get("change") or info.get("changesPercentage")
+        change = info.get("changesPercentage")
         value = price * shares
         results.append({
             "Ticker": ticker,
@@ -84,7 +61,7 @@ for entry in portfolio:
             "Price": round(price, 2),
             "Daily % Change": round(change, 2) if change else "N/A",
             "Total Value": round(value, 2),
-            "Source": source
+            "Source": "FMP"
         })
         total_value += value
     else:
@@ -95,7 +72,7 @@ for entry in portfolio:
             "Price": "N/A",
             "Daily % Change": "N/A",
             "Total Value": 0,
-            "Source": "Unavailable"
+            "Source": "Missing (FMP only)"
         })
 
 for row in results:
@@ -107,5 +84,6 @@ if df.empty:
     st.error("No data could be retrieved. Try again later.")
 else:
     st.dataframe(df, use_container_width=True)
+
 
 
